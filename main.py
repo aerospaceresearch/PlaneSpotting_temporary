@@ -96,8 +96,10 @@ def main():
 
     # rtlsdr is recording binary unsigned. so making it signed and just using the amplitude of the iq data
     data = -127 + data
-    #data = np.subtract(data, -127)
+    #data = np.subtract(data, -127) int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2)
+    time_samp = time.time()
     samples = (data[0::2] ** 2 + data[1::2] ** 2) ** 0.5
+    time_samp2 = time.time()
 
     # the adsb preamble is 1010000101000000
     # 1 =
@@ -142,15 +144,20 @@ def main():
 
 
                 # maybe there is a better way to distingish between short and extended squitter, but at least this works
-                if int(crc(hex(int(msg_bin, 2))[2:]), 2) == 0:
-                    print("112", count, hex(int(msg_bin, 2))[2:], s + msg_start, (s + msg_start) / len(samples))
-                    count += 1
+                type = int(msg_bin[:5], 2)
+                if type == 16 or type == 17 or type == 19 or type == 20 or type == 21:
+                    if int(crc(hex(int(msg_bin, 2))[2:]), 2) == 0:
+                        print("112", count, hex(int(msg_bin, 2))[2:], s + msg_start, (s + msg_start) / len(samples))
+                        count += 1
 
-                if int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2) == 0:
-                    print("056", count, hex(int(msg_bin, 2))[2:2 + 14], s + msg_start, (s + msg_start) / len(samples))
-                    count += 1
+                #if int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2) == 0:
+                else:
+                    if int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2) == 0:
+                        print("056", count, hex(int(msg_bin, 2))[2:2 + 14], s + msg_start, (s + msg_start) / len(samples))
+                        count += 1
 
     print("total time", time.time() - time_start)
+    print("Sampling time", time_samp2 - time_samp)
 
 if __name__ == "__main__":
     main()
