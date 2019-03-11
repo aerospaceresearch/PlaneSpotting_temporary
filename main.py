@@ -1,11 +1,13 @@
 import numpy as np
 import math
 import time
+#import gc
 
-def normalized_correlation(haystack, needle):
+def normalized_correlation(haystack):
     # math source: https://anomaly.io/understand-auto-cross-correlation-normalized-shift/#/normalized_cross_correlation
 
     # let us see how fast we can process this
+    #length = len(needle)
     time1 = time.time()
 
     # numerator, a simple numpy correlation
@@ -13,10 +15,10 @@ def normalized_correlation(haystack, needle):
 
     # denominator, that what is missing in the numpy correlation function.
     normed_corr_denominator_hay = np.multiply(haystack, haystack)
-    normed_corr_denominator_hay = np.convolve(normed_corr_denominator_hay, np.ones(len(needle), dtype=int), "valid")
+    normed_corr_denominator_hay = np.convolve(normed_corr_denominator_hay, np.ones(length, dtype=int), "valid")
 
     normed_corr_denominator_nee = np.multiply(needle, needle)
-    normed_corr_denominator_nee = np.convolve(normed_corr_denominator_nee, np.ones(len(needle), dtype=int), "valid")
+    normed_corr_denominator_nee = np.convolve(normed_corr_denominator_nee, np.ones(length, dtype=int), "valid")
 
     normed_corr_denominator = np.multiply(normed_corr_denominator_hay, normed_corr_denominator_nee)
     normed_corr_denominator = np.sqrt(normed_corr_denominator)
@@ -28,6 +30,7 @@ def normalized_correlation(haystack, needle):
     print("normalized correlation was done in", time.time() - time1, "seconds")
 
     return normed_corr
+    #gc.collect()
 
 
 def hex2bin(hexstr):
@@ -245,8 +248,10 @@ def main():
 
 
     # rtlsdr is recording binary unsigned. so making it signed and just using the amplitude of the iq data
-    data = -127 + data[:]
-    samples = np.sqrt(np.square(data[0::2]) + np.square(data[1::2]))
+    time_samp = time.time() #check for bottlenecks
+    data = np.add(-127, data)
+    samples = np.sqrt(np.add(np.square(data[0::2]), np.square(data[1::2])))
+    time_samp2 = time.time()
 
     # the adsb preamble is 1010000101000000
     # 1 =
@@ -256,14 +261,15 @@ def main():
     # A each sample would be multiplied with zero and so "bad" samples would be ignored too much.
     # With a low multiplicant, it would be still recognized and included into the correlation sum.
 
-    needle = [1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
-    needle = np.array(needle) # converting it to a numpy array, because numpy doesn't like a normal python list.
+    #needle = [1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    #needle = np.array([1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]) # converting it to a numpy array, because numpy doesn't like a normal python list.
 
     steps = 50000000
     count = 0
-    for s in range(0, len(samples), steps):
+    len_sam = len(samples)
+    for s in range(0, len_sam, steps):
         samples_chunk = samples[s : s + steps]
-        corr = normalized_correlation(samples_chunk, needle)
+        corr = normalized_correlation(samples_chunk)
 
         # finding the best starts of the preambles and putting the sample indexes to a list.
         # here we use > 0.86 because it worked good.
@@ -292,47 +298,57 @@ def main():
 
 
                 # maybe there is a better way to distingish between short and extended squitter, but at least this works
-                if int(crc(hex(int(msg_bin, 2))[2:]), 2) == 0:
+                message = hex(int(msg_bin, 2))[2:]
+                message_crc = int(crc(message), 2)
+                if message_crc == 0:
                     #print(msg_bin)
-                    print("112", count, hex(int(msg_bin, 2))[2:], s + msg_start, (s + msg_start) / len(samples))
+                    print("112", count, message, s + msg_start, (s + msg_start) / len_sam)
                     count += 1
                     continue
 
                 else:
                     # finding where the 1 bit error most likely occured for a 112 bit message
-                    position = np.argwhere(np.array(crc_lut_112bit) == hex(int(crc(hex(int(msg_bin, 2))[2:]), 2)))
+                    position = np.argwhere(np.array(crc_lut_112bit) == hex(message_crc))
 
                     if len(position) > 0:
                         # correcting the msg here
                         msg_bin_corrected = flip_bit(msg_bin, position)
 
-                        if int(crc(hex(int(msg_bin_corrected, 2))[2:]), 2) == 0:
+                        msg_corr = hex(int(msg_bin_corrected, 2))[2:]
+                        #msg_corr_crc = int(crc(msg_corr), 2)
+                        if int(crc(msg_corr), 2) == 0:
                             # print(msg_bin)
-                            print("112_c", count, hex(int(msg_bin_corrected, 2))[2:], s + msg_start, (s + msg_start) / len(samples))
+                            print("112_c", count, msg_corr, s + msg_start, (s + msg_start) / len_sam)
                             count += 1
                             continue
-
-
-                if int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2) == 0:
-                    print("056", count, hex(int(msg_bin, 2))[2:2 + 14], s + msg_start, (s + msg_start) / len(samples))
+                #gc.collect()
+                message = hex(int(msg_bin, 2))[2:16]
+                message_crc = int(crc(message), 2)
+                if message_crc == 0:
+                    print("056", count, message, s + msg_start, (s + msg_start) / len_sam)
                     count += 1
                     continue
 
                 else:
                     # finding where the 1 bit error most likely occured for a 56 bit message
-                    position = np.argwhere(np.array(crc_lut_056bit)==hex(int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2)))
+                    position = np.argwhere(np.array(crc_lut_056bit)==hex(message_crc))
 
                     if len(position) > 0:
                         # correcting the msg here
                         msg_bin_corrected = flip_bit(msg_bin, position)
 
-                        if int(crc(hex(int(msg_bin_corrected, 2))[2:2 + 14]), 2) == 0:
+                        msg_corr = hex(int(msg_bin_corrected, 2))[2:16]
+                        #msg_corr_crc = int(crc(msg_corr), 2)
+                        if int(crc(msg_corr), 2) == 0:
                             # print(msg_bin)
-                            print("056_c", count, hex(int(msg_bin_corrected, 2))[2: 2 + 14], s + msg_start, (s + msg_start) / len(samples))
+                            print("056_c", count, msg_corr, s + msg_start, (s + msg_start) / len_sam)
                             count += 1
                             continue
 
     print("total time", time.time() - time_start)
+    print("Samping time", time_samp2 - time_samp)
 
 if __name__ == "__main__":
+    needle = np.array([1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 1.0, 0.1, 1.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]) # converting it to a numpy array, because numpy doesn't like a normal python list.
+    length = len(needle)
     main()
