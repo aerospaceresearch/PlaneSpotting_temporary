@@ -291,6 +291,7 @@ def main():
                         msg_bin += "0"
 
                 msg = hex(int(msg_bin, 2))
+                df = int(msg_bin[0 : 5], 2)
 
                 # DF11 and DF17
                 # maybe there is a better way to distingish between short and extended squitter, but at least this works
@@ -327,6 +328,15 @@ def main():
                 if int(crc(msg[2:2 + 14]), 2) == 0:
                     print("056_origi", count, msg[2:2 + 14], s + msg_start, progress)
                     count += 1
+
+                    # when we found a plane for sure, we save the icao address. we need it later.
+                    icao_address = msg[2 + 2:2 + 2 + 6]
+                    if len(icao_knownlist) == 0:
+                        icao_knownlist.append(icao_address)
+                    else:
+                        if len(np.argwhere(np.array(icao_knownlist) == icao_address)) == 0:
+                            icao_knownlist.append(icao_address)
+
                     continue
 
                 else:
@@ -348,19 +358,37 @@ def main():
                 # all the other DF's
                 if len(icao_knownlist) > 0:
 
-                    # checking the 112 bit long messages
-                    if parity_and_icao_address_recovery(msg[2:], icao_knownlist) >= 1:
-                        print("112_DFxxx", count, msg[2:], s + msg_start,
-                              progress)
+                    if df == 0 or \
+                        df == 4 or \
+                        df == 5 or \
+                        df == 16 or \
+                        df == 20 or \
+                        df == 21 or \
+                        df == 24:
 
-                        count += 1
-                        continue
+                        '''
+                        0 = Short air surveillance
+                        4 = Surveillance, altitude reply
+                        5 = Surveillance, identity reply
+                        16 = Long Air-Air survillance
+                        20 = Comm-A, altitude request
+                        21 = Comm-A, identity request
+                        '''
 
-                    # checking the 56 bit long messages
-                    if parity_and_icao_address_recovery(msg[2 : 2 + 14], icao_knownlist) >= 1:
-                        print("056_DFxxx", count, msg[2 : 2 + 14], s + msg_start, progress)
-                        count += 1
-                        continue
+                        # checking the 112 bit long messages
+                        if parity_and_icao_address_recovery(msg[2:], icao_knownlist) >= 1:
+                            print("112_DFxxx", count, msg[2:], s + msg_start,
+                                  progress)
+
+                            count += 1
+                            continue
+
+                        # checking the 56 bit long messages
+                        if parity_and_icao_address_recovery(msg[2 : 2 + 14], icao_knownlist) >= 1:
+                            print("056_DFxxx", count, msg[2 : 2 + 14], s + msg_start, progress)
+                            count += 1
+                            continue
+
 
 
     print("total time", time.time() - time_start)
