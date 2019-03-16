@@ -80,35 +80,6 @@ def crc(msg, encoding=False):
     return rest
 
 
-def fix_msg_1bit(msg_bin, pos):
-
-    msg_list = list(msg_bin)
-
-    msg_bin_corrected = ""
-
-    parity_length = 24
-    for c in range(len(msg_bin) - parity_length):
-
-        # bit flipping
-        if msg_list[c] == "1":
-            msg_list[c] = "0"
-        else:
-            msg_list[c] = "1"
-
-
-        if int(crc(hex(int(''.join(msg_list), 2))[2:2 + 14]), 2) == 0:
-            #print(pos, "corrected at", c,  ''.join(msg_list))
-            msg_bin_corrected = ''.join(msg_list)
-            break
-
-        # bit back flipping
-        if msg_list[c] == "1":
-            msg_list[c] = "0"
-        else:
-            msg_list[c] = "1"
-
-    return msg_bin_corrected
-
 
 def flip_bit(msg_bin, position):
     '''
@@ -222,6 +193,31 @@ def create_crc_lut_112bit():
     return crc_lut_112bit
 
 
+def parity_and_icao_address_recovery(msg_bin, icao_list):
+    '''
+    Parity and ICAO address recovery.
+
+    as a form of crc check, the plane's icao address is used. so if the right address is generated, the message
+    is accpted as correct.
+
+    :param msg_bin: the message to check
+    :param icao_list: the known icao address that we already found or know
+    :return:
+    '''
+
+    # generating the crc checksum by the full message stream
+    encode_data = (hex(int(crc(hex(int(msg_bin, 2))[2:], True), 2)))[2:]
+    # using the transmitted parit of the message as is
+    parity = hex(int(msg_bin, 2))[-24 // 4:]
+
+    # xor the encoded data with the sent parity bit to recover the icao adress of the plane.
+    icao_address = hex(int(encode_data, 16) ^ int(parity, 16))[2:]
+
+    # find calculated icao address in the known icao address list
+    return len(np.argwhere(np.array(icao_list) == icao_address))
+
+
+
 
 def main():
     print("Hello World!")
@@ -261,6 +257,9 @@ def main():
 
     steps = 50000000
     count = 0
+
+    icao_knownlist = []
+
     for s in range(0, len(samples), steps):
         samples_chunk = samples[s : s + steps]
         corr = normalized_correlation(samples_chunk, needle)
@@ -272,6 +271,7 @@ def main():
         # iterating through all the possible message starts
         for msg_index in range(len(preamble_start[0])):
             msg_start = preamble_start[0][msg_index]
+            progress = np.round((s + msg_start) / len(samples), 4)
 
             msg = samples_chunk[msg_start + 16: msg_start + 120 * 2]
 
@@ -291,11 +291,22 @@ def main():
                         msg_bin += "0"
 
 
+
+                # DF11 and DF17
                 # maybe there is a better way to distingish between short and extended squitter, but at least this works
                 if int(crc(hex(int(msg_bin, 2))[2:]), 2) == 0:
                     #print(msg_bin)
-                    print("112", count, hex(int(msg_bin, 2))[2:], s + msg_start, (s + msg_start) / len(samples))
+                    print("112_origi", count, hex(int(msg_bin, 2))[2:], s + msg_start, progress)
                     count += 1
+
+                    # when we found a plane for sure, we save the icao address. we need it later.
+                    icao_address = hex(int(msg_bin, 2))[2 + 2:2 + 2 + 6]
+                    if len(icao_knownlist) == 0:
+                        icao_knownlist.append(icao_address)
+                    else:
+                        if len(np.argwhere(np.array(icao_knownlist) == icao_address)) == 0:
+                            icao_knownlist.append(icao_address)
+
                     continue
 
                 else:
@@ -308,13 +319,13 @@ def main():
 
                         if int(crc(hex(int(msg_bin_corrected, 2))[2:]), 2) == 0:
                             # print(msg_bin)
-                            print("112_c", count, hex(int(msg_bin_corrected, 2))[2:], s + msg_start, (s + msg_start) / len(samples))
+                            print("112_fixed", count, hex(int(msg_bin_corrected, 2))[2:], s + msg_start, progress)
                             count += 1
                             continue
 
 
                 if int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2) == 0:
-                    print("056", count, hex(int(msg_bin, 2))[2:2 + 14], s + msg_start, (s + msg_start) / len(samples))
+                    print("056_origi", count, hex(int(msg_bin, 2))[2:2 + 14], s + msg_start, progress)
                     count += 1
                     continue
 
@@ -328,9 +339,23 @@ def main():
 
                         if int(crc(hex(int(msg_bin_corrected, 2))[2:2 + 14]), 2) == 0:
                             # print(msg_bin)
-                            print("056_c", count, hex(int(msg_bin_corrected, 2))[2: 2 + 14], s + msg_start, (s + msg_start) / len(samples))
+                            print("056_fixed", count, hex(int(msg_bin_corrected, 2))[2: 2 + 14], s + msg_start, progress)
                             count += 1
                             continue
+
+
+
+                # all the other DF's
+                if len(icao_knownlist) > 0:
+
+                    # checking the 112 bit long messages
+                    if parity_and_icao_address_recovery(msg_bin, icao_knownlist) >= 1:
+                        print("112_DFxxx", count, hex(int(msg_bin, 2))[2:], s + msg_start,
+                              progress)
+
+                        count += 1
+                        continue
+
 
     print("total time", time.time() - time_start)
 
