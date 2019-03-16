@@ -193,7 +193,7 @@ def create_crc_lut_112bit():
     return crc_lut_112bit
 
 
-def parity_and_icao_address_recovery(msg_bin, icao_list):
+def parity_and_icao_address_recovery(msg, icao_list):
     '''
     Parity and ICAO address recovery.
 
@@ -206,9 +206,9 @@ def parity_and_icao_address_recovery(msg_bin, icao_list):
     '''
 
     # generating the crc checksum by the full message stream
-    encode_data = (hex(int(crc(hex(int(msg_bin, 2))[2:], True), 2)))[2:]
+    encode_data = (hex(int(crc(msg, True), 2)))[2:]
     # using the transmitted parit of the message as is
-    parity = hex(int(msg_bin, 2))[-24 // 4:]
+    parity = msg[-24 // 4:]
 
     # xor the encoded data with the sent parity bit to recover the icao adress of the plane.
     icao_address = hex(int(encode_data, 16) ^ int(parity, 16))[2:]
@@ -273,34 +273,34 @@ def main():
             msg_start = preamble_start[0][msg_index]
             progress = np.round((s + msg_start) / len(samples), 4)
 
-            msg = samples_chunk[msg_start + 16: msg_start + 120 * 2]
+            msg_iq = samples_chunk[msg_start + 16: msg_start + 120 * 2]
 
             # putting the raw adsb mode-s message into a binary string
             msg_bin = ""
 
             # just a check for when the message is too close at the edge of the next sample chunk.
             # adsb modes can be 112 and 56 bits long. we always take 112 and due to manchaster coding, it is doubled.
-            if len(msg) == 224:
-                for i in range(0, len(msg), 2):
+            if len(msg_iq) == 224:
+                for i in range(0, len(msg_iq), 2):
 
                     # manchester coding
                     # https://en.wikipedia.org/wiki/Manchester_code
-                    if msg[i] > msg[i + 1]:
+                    if msg_iq[i] > msg_iq[i + 1]:
                         msg_bin += "1"
                     else:
                         msg_bin += "0"
 
-
+                msg = hex(int(msg_bin, 2))
 
                 # DF11 and DF17
                 # maybe there is a better way to distingish between short and extended squitter, but at least this works
-                if int(crc(hex(int(msg_bin, 2))[2:]), 2) == 0:
+                if int(crc(msg[2:]), 2) == 0:
                     #print(msg_bin)
-                    print("112_origi", count, hex(int(msg_bin, 2))[2:], s + msg_start, progress)
+                    print("112_origi", count, msg[2:], s + msg_start, progress)
                     count += 1
 
                     # when we found a plane for sure, we save the icao address. we need it later.
-                    icao_address = hex(int(msg_bin, 2))[2 + 2:2 + 2 + 6]
+                    icao_address = msg[2 + 2:2 + 2 + 6]
                     if len(icao_knownlist) == 0:
                         icao_knownlist.append(icao_address)
                     else:
@@ -311,7 +311,7 @@ def main():
 
                 else:
                     # finding where the 1 bit error most likely occured for a 112 bit message
-                    position = np.argwhere(np.array(crc_lut_112bit) == hex(int(crc(hex(int(msg_bin, 2))[2:]), 2)))
+                    position = np.argwhere(np.array(crc_lut_112bit) == hex(int(crc(msg[2:]), 2)))
 
                     if len(position) > 0:
                         # correcting the msg here
@@ -324,14 +324,14 @@ def main():
                             continue
 
 
-                if int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2) == 0:
-                    print("056_origi", count, hex(int(msg_bin, 2))[2:2 + 14], s + msg_start, progress)
+                if int(crc(msg[2:2 + 14]), 2) == 0:
+                    print("056_origi", count, msg[2:2 + 14], s + msg_start, progress)
                     count += 1
                     continue
 
                 else:
                     # finding where the 1 bit error most likely occured for a 56 bit message
-                    position = np.argwhere(np.array(crc_lut_056bit)==hex(int(crc(hex(int(msg_bin, 2))[2:2 + 14]), 2)))
+                    position = np.argwhere(np.array(crc_lut_056bit)==hex(int(crc(msg[2:2 + 14]), 2)))
 
                     if len(position) > 0:
                         # correcting the msg here
@@ -349,10 +349,16 @@ def main():
                 if len(icao_knownlist) > 0:
 
                     # checking the 112 bit long messages
-                    if parity_and_icao_address_recovery(msg_bin, icao_knownlist) >= 1:
-                        print("112_DFxxx", count, hex(int(msg_bin, 2))[2:], s + msg_start,
+                    if parity_and_icao_address_recovery(msg[2:], icao_knownlist) >= 1:
+                        print("112_DFxxx", count, msg[2:], s + msg_start,
                               progress)
 
+                        count += 1
+                        continue
+
+                    # checking the 56 bit long messages
+                    if parity_and_icao_address_recovery(msg[2 : 2 + 14], icao_knownlist) >= 1:
+                        print("056_DFxxx", count, msg[2 : 2 + 14], s + msg_start, progress)
                         count += 1
                         continue
 
