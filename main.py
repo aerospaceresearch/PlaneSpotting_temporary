@@ -295,76 +295,49 @@ def main():
 
                 # DF11 and DF17
                 # maybe there is a better way to distingish between short and extended squitter, but at least this works
-                if int(crc(msg[2:]), 2) == 0:
-                    #print(msg_bin)
-                    print("112_origi", count, msg[2:], s + msg_start, progress)
-                    count += 1
+                if df == 17 or df == 18:
+                    if int(crc(msg[2:]), 2) == 0:
+                        #print(msg_bin)
+                        print("112_origi", df, count, msg[2:], s + msg_start, progress)
+                        count += 1
 
-                    # when we found a plane for sure, we save the icao address. we need it later.
-                    icao_address = msg[2 + 2:2 + 2 + 6]
-                    if len(icao_knownlist) == 0:
-                        icao_knownlist.append(icao_address)
-                    else:
-                        if len(np.argwhere(np.array(icao_knownlist) == icao_address)) == 0:
+                        # when we found a plane for sure, we save the icao address. we need it later.
+                        icao_address = msg[2 + 2:2 + 2 + 6]
+                        if len(icao_knownlist) == 0:
                             icao_knownlist.append(icao_address)
+                        else:
+                            if len(np.argwhere(np.array(icao_knownlist) == icao_address)) == 0:
+                                icao_knownlist.append(icao_address)
 
-                    continue
-
-                else:
-                    # finding where the 1 bit error most likely occured for a 112 bit message
-                    position = np.argwhere(np.array(crc_lut_112bit) == hex(int(crc(msg[2:]), 2)))
-
-                    if len(position) > 0:
-                        # correcting the msg here
-                        msg_bin_corrected = flip_bit(msg_bin, position)
-
-                        if int(crc(hex(int(msg_bin_corrected, 2))[2:]), 2) == 0:
-                            # print(msg_bin)
-                            print("112_fixed", count, hex(int(msg_bin_corrected, 2))[2:], s + msg_start, progress)
-                            count += 1
-                            continue
+                        continue
 
 
-                if int(crc(msg[2:2 + 14]), 2) == 0:
-                    print("056_origi", count, msg[2:2 + 14], s + msg_start, progress)
-                    count += 1
+                elif df == 11:
 
-                    # when we found a plane for sure, we save the icao address. we need it later.
-                    icao_address = msg[2 + 2:2 + 2 + 6]
-                    if len(icao_knownlist) == 0:
-                        icao_knownlist.append(icao_address)
-                    else:
-                        if len(np.argwhere(np.array(icao_knownlist) == icao_address)) == 0:
+                    if int(crc(msg[2:2 + 14]), 2) == 0:
+                        print("056_origi", df, count, msg[2:2 + 14], s + msg_start, progress)
+                        count += 1
+
+                        # when we found a plane for sure, we save the icao address. we need it later.
+                        icao_address = msg[2 + 2:2 + 2 + 6]
+                        if len(icao_knownlist) == 0:
                             icao_knownlist.append(icao_address)
+                        else:
+                            if len(np.argwhere(np.array(icao_knownlist) == icao_address)) == 0:
+                                icao_knownlist.append(icao_address)
 
-                    continue
+                        continue
 
-                else:
-                    # finding where the 1 bit error most likely occured for a 56 bit message
-                    position = np.argwhere(np.array(crc_lut_056bit)==hex(int(crc(msg[2:2 + 14]), 2)))
-
-                    if len(position) > 0:
-                        # correcting the msg here
-                        msg_bin_corrected = flip_bit(msg_bin, position)
-
-                        if int(crc(hex(int(msg_bin_corrected, 2))[2:2 + 14]), 2) == 0:
-                            # print(msg_bin)
-                            print("056_fixed", count, hex(int(msg_bin_corrected, 2))[2: 2 + 14], s + msg_start, progress)
-                            count += 1
-                            continue
-
-
-
-                # all the other DF's
+                        # all the other DF's
                 if len(icao_knownlist) > 0:
 
                     if df == 0 or \
-                        df == 4 or \
-                        df == 5 or \
-                        df == 16 or \
-                        df == 20 or \
-                        df == 21 or \
-                        df == 24:
+                                    df == 4 or \
+                                    df == 5 or \
+                                    df == 16 or \
+                                    df == 20 or \
+                                    df == 21 or \
+                                    df == 24:
 
                         '''
                         0 = Short air surveillance
@@ -375,20 +348,57 @@ def main():
                         21 = Comm-A, identity request
                         '''
 
-                        # checking the 112 bit long messages
-                        if parity_and_icao_address_recovery(msg[2:], icao_knownlist) >= 1:
-                            print("112_DFxxx", count, msg[2:], s + msg_start,
-                                  progress)
+                        if df >= 16:
+                            # checking the 112 bit long messages
+                            if parity_and_icao_address_recovery(msg[2:], icao_knownlist) >= 1:
+                                print("112_DFxxx", df, count, msg[2:], s + msg_start, progress)
 
+                                count += 1
+                                continue
+
+                        else:
+                            # checking the 56 bit long messages
+                            if parity_and_icao_address_recovery(msg[2: 2 + 14], icao_knownlist) >= 1:
+                                print("056_DFxxx", df, count, msg[2: 2 + 14], s + msg_start, progress)
+
+                                count += 1
+                                continue
+
+
+
+                # here be fix dragongs!
+
+                if df == 17 or df == 18:
+                    # finding where the 1 bit error most likely occured for a 112 bit message
+                    position = np.argwhere(np.array(crc_lut_112bit) == hex(int(crc(msg[2:]), 2)))
+
+                    if len(position) > 0:
+                        # correcting the msg here
+                        msg_bin_corrected = flip_bit(msg_bin, position)
+                        df = int(msg_bin_corrected[0: 5], 2)
+
+                        if int(crc(hex(int(msg_bin_corrected, 2))[2:]), 2) == 0:
+                            # print(msg_bin)
+                            print("112_fixed", df, count, hex(int(msg_bin_corrected, 2))[2:], s + msg_start, progress)
                             count += 1
                             continue
 
-                        # checking the 56 bit long messages
-                        if parity_and_icao_address_recovery(msg[2 : 2 + 14], icao_knownlist) >= 1:
-                            print("056_DFxxx", count, msg[2 : 2 + 14], s + msg_start, progress)
+
+
+                if df == 11:
+                    # finding where the 1 bit error most likely occured for a 56 bit message
+                    position = np.argwhere(np.array(crc_lut_056bit) == hex(int(crc(msg[2:2 + 14]), 2)))
+
+                    if len(position) > 0:
+                        # correcting the msg here
+                        msg_bin_corrected = flip_bit(msg_bin, position)
+                        df = int(msg_bin_corrected[0: 5], 2)
+
+                        if int(crc(hex(int(msg_bin_corrected, 2))[2:2 + 14]), 2) == 0:
+                            # print(msg_bin)
+                            print("056_fixed", df, count, hex(int(msg_bin_corrected, 2))[2: 2 + 14], s + msg_start, progress)
                             count += 1
                             continue
-
 
 
     print("total time", time.time() - time_start)
